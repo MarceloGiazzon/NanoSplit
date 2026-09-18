@@ -1,0 +1,64 @@
+# NanoSplit configuration.
+#
+# Copy this file to "nanosplit.properties" (next to where you run nanosplit
+# from) and fill in your own paths and credentials. That file is already
+# listed in .gitignore - it is never meant to be committed once it holds real
+# values.
+#
+# Windows paths: either double the backslashes or use forward slashes.
+#   db.server=MYPC\\SQLEXPRESS      (ok)
+#   db.server=MYPC/SQLEXPRESS       (also ok - SQL Server accepts either)
+#   input.file=D:/scripts/dump.sql  (recommended)
+#   input.file=D:\\scripts\\dump.sql (also fine, note the doubled backslashes)
+#
+# Every key below has a built-in default; you only need to set the ones you
+# want to change. Run "nanosplit <command> --help" for the full option list.
+
+# ---------------------------------------------------------------------------
+# Database connection
+# ---------------------------------------------------------------------------
+db.server=localhost\\SQLEXPRESS
+db.name=
+
+# Windows Authentication (default). Requires the mssql-jdbc auth DLL matching
+# your JVM's bitness to be on PATH or next to nanosplit.jar - see README.md.
+db.integratedSecurity=true
+db.user=
+db.password=
+
+# SQL Server authentication instead: set integratedSecurity=false and fill
+# these in. Prefer the NANOSPLIT_DB_PASSWORD environment variable over typing
+# the password in this file.
+#db.integratedSecurity=false
+#db.user=sa
+#db.password=
+
+db.encrypt=false
+db.trustServerCertificate=true
+db.connectTimeoutSeconds=30
+db.commandTimeoutSeconds=0
+
+# ---------------------------------------------------------------------------
+# Files
+# ---------------------------------------------------------------------------
+input.file=
+input.encoding=auto
+output.dir=temp/sql_parts
+
+# ---------------------------------------------------------------------------
+# Splitting
+# ---------------------------------------------------------------------------
+# Cut a new part after this many statements OR this many bytes, whichever
+# comes first. Set split.parts to a fixed number instead if you want exactly
+# N parts regardless of size.
+split.maxStatementsPerPart=50000
+split.maxBytesPerPart=64MB
+split.parts=0
+
+# ---------------------------------------------------------------------------
+# Execution (nanosplit run)
+# ---------------------------------------------------------------------------
+run.stopOnError=true
+run.commitEvery=1000
+run.retries=1
+run.retryDelaySeconds=5

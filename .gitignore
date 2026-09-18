@@ -1,0 +1,34 @@
+# Build output
+target/
+*.class
+
+# Local configuration - may hold real server names, DB names, and credentials
+nanosplit.properties
+
+# Split output, run state, logs - all generated, all potentially huge
+temp/
+/output/
+/parts/
+/parts2/
+sql_parts/
+*.sql
+!src/**/*.sql
+nanosplit-state.json
+index.json
+logs/
+
+# Local test/sample data - never meant to be committed (can be multi-GB)
+/Sample/
+*.zip
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
