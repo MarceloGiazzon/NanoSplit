@@ -26,6 +26,13 @@ public final class Defaults {
         d.put("db.commandTimeoutSeconds", "0");
         d.put("db.applicationName", "NanoSplit");
         d.put("db.extraUrlParams", "");
+        // auto: use sqlcmd if it resolves on PATH (works locally without TCP -
+        // SSMS and sqlcmd use Named Pipes/Shared Memory for a local server,
+        // which the Microsoft JDBC driver cannot do), otherwise fall back to
+        // the JDBC driver. jdbc/sqlcmd force one or the other.
+        d.put("db.driver", "auto");
+        d.put("db.sqlcmdPath", "sqlcmd");
+        d.put("db.sqlcmdExtraArgs", "");
 
         // --- Files -------------------------------------------------------
         d.put("input.file", "");
@@ -56,6 +63,14 @@ public final class Defaults {
                         + "|CONCAT_NULL_YIELDS_NULL|NUMERIC_ROUNDABORT|LANGUAGE)\\b)");
         d.put("split.header", "");
         d.put("split.footer", "");
+        // Literal find/replace applied to every statement, e.g. to point a
+        // script generated for one database at a differently-named one -
+        // renameFrom="OldDbName" renameTo="NewDbName". Empty renameFrom disables
+        // it. See README for why this is needed (the name is baked into the SQL
+        // text - CREATE DATABASE/USE/ALTER DATABASE and their file paths - there
+        // is no server-side setting that redirects it).
+        d.put("split.renameFrom", "");
+        d.put("split.renameTo", "");
 
         // --- Execution -----------------------------------------------------
         d.put("run.stopOnError", "true");

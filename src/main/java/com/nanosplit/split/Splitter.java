@@ -63,6 +63,8 @@ public final class Splitter {
     private final Pattern splittable;
     private final Pattern contextPattern;
     private final long sourceSize;
+    private final String renameFrom;
+    private final String renameTo;
 
     public Splitter(AppConfig cfg) throws ConfigException, IOException {
         this.cfg = cfg;
@@ -88,6 +90,29 @@ public final class Splitter {
         this.splittable = cfg.regex("split.splittablePattern");
         this.contextPattern = carryContext ? cfg.regex("split.contextPattern") : null;
         this.sourceSize = inputFile.length();
+        this.renameFrom = cfg.get("split.renameFrom").trim();
+        this.renameTo = cfg.get("split.renameTo").trim();
+        if (!renameFrom.isEmpty() && renameTo.isEmpty()) {
+            throw new ConfigException("split.renameFrom is set but split.renameTo is empty - "
+                    + "say what to rename it to");
+        }
+    }
+
+    /**
+     * Literal (non-regex) find/replace applied to every statement before it is
+     * written, e.g. to point a script generated for one database at a
+     * differently-named one. SSMS-generated scripts bake the database name
+     * into {@code CREATE DATABASE}/{@code USE}/{@code ALTER DATABASE}
+     * statements (and into the physical file paths inside {@code CREATE
+     * DATABASE}) - there is no config key on the SQL Server side that
+     * redirects those, so NanoSplit rewrites the text itself. Disabled (text
+     * returned unchanged) when {@code split.renameFrom} is blank.
+     */
+    private String applyRename(String text) {
+        if (renameFrom.isEmpty() || text.indexOf(renameFrom) < 0) {
+            return text;
+        }
+        return text.replace(renameFrom, renameTo);
     }
 
     private static String resolveEol(String setting) throws ConfigException {
@@ -174,7 +199,8 @@ public final class Splitter {
                     openPart(state, context, unit.line);
                 }
 
-                String text = normaliseEol(unit.text);
+                String rawText = applyRename(unit.text);
+                String text = normaliseEol(rawText);
                 PartWriter.StatementPosition position = state.writer.writeStatement(text);
 
                 state.stmtsInPart++;
@@ -196,13 +222,13 @@ public final class Splitter {
                 if (unit.splittable) {
                     totals[1]++;
                     state.entry.inserts++;
-                    String table = TableNames.of(unit.text, tableMemo);
+                    String table = TableNames.of(rawText, tableMemo);
                     if (table != null) {
                         state.entry.tables.merge(table, 1, Integer::sum);
                         totalTables.merge(table, 1L, Long::sum);
                     }
                 } else if (carryContext) {
-                    context.observe(unit.text);
+                    context.observe(rawText);
                 }
 
                 if (goEvery > 0 && state.sinceGo >= goEvery && !batchSeparator.isEmpty()) {
@@ -335,6 +361,7 @@ public final class Splitter {
         s.entry.lines = s.writer.lines();
         s.entry.closers = closers;
         s.entry.statements = s.stmtsInPart;
+        s.entry.pureDml = s.stmtsInPart > 0 && s.stmtsInPart == s.entry.inserts;
         parts.add(s.entry);
         s.writer = null;
         s.entry = null;

@@ -55,6 +55,15 @@ split.maxStatementsPerPart=50000
 split.maxBytesPerPart=64MB
 split.parts=0
 
+# Redirect the script at a differently-named database. SSMS-generated scripts
+# bake the database name into CREATE DATABASE/USE/ALTER DATABASE statements
+# (and into the physical .mdf/.ldf file paths) - there is no server-side
+# setting that redirects those, so NanoSplit rewrites the text itself.
+# Leave renameFrom blank to disable (the default) - every statement is left
+# byte-for-byte as-is.
+#split.renameFrom=OriginalDbName
+#split.renameTo=MyTestCopy
+
 # ---------------------------------------------------------------------------
 # Execution (nanosplit run)
 # ---------------------------------------------------------------------------

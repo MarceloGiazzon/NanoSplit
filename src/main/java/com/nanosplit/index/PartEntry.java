@@ -19,4 +19,12 @@ public final class PartEntry {
     public long bytes;
     public String sha256;
     public int lines;
+    // True when every statement in this part is DML (statements == inserts):
+    // no CREATE/ALTER DATABASE, no other session/DDL statement. Such a part
+    // is safe to wrap in one big transaction for sqlcmd execution - either
+    // all of it lands or none of it does, so a blind retry after a failure
+    // can never insert a row twice. A part that also carries DDL/DATABASE
+    // statements (which SQL Server refuses inside a user transaction) is not
+    // wrapped and is executed best-effort instead.
+    public boolean pureDml;
 }

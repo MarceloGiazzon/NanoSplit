@@ -1,6 +1,8 @@
 package com.nanosplit.cli;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -10,6 +12,7 @@ import java.util.concurrent.Callable;
 import com.nanosplit.config.AppConfig;
 import com.nanosplit.db.ConnectionFactory;
 import com.nanosplit.db.PartAccess;
+import com.nanosplit.db.SqlcmdSupport;
 import com.nanosplit.index.Index;
 import com.nanosplit.index.PartEntry;
 import com.nanosplit.index.StatementRef;
@@ -23,6 +26,9 @@ import picocli.CommandLine.Option;
  * statement (each in its own transaction, rolled back by default) so a schema
  * mismatch or bad connection surfaces in seconds instead of after loading
  * millions of rows.
+ *
+ * <p>Uses the same {@code db.driver} choice as {@code run} (JDBC or {@code
+ * sqlcmd} - see {@link com.nanosplit.db.SqlcmdRunner}).
  */
 @Command(name = "smoke", description = "Try the first and last statement of every part, without loading the rest")
 public final class SmokeCommand implements Callable<Integer> {
@@ -52,24 +58,21 @@ public final class SmokeCommand implements Callable<Integer> {
             return 0;
         }
 
-        ConnectionFactory factory = new ConnectionFactory(cfg);
-        System.out.println("Connecting to " + factory.describeUrl());
-        System.out.println((rollback ? "Rolling back" : "Committing") + " every test statement (smoke.rollback=" + rollback + ")");
-        System.out.println();
+        String driverMode = cfg.get("db.driver").trim().toLowerCase();
+        boolean useSqlcmd = driverMode.equals("sqlcmd") || (driverMode.equals("auto") && SqlcmdSupport.isAvailable(cfg));
 
-        int failures = 0;
-        try (Connection conn = factory.connect()) {
-            conn.setAutoCommit(false);
-            for (PartEntry part : parts) {
-                String outcome = testPart(conn, index, part, rollback);
-                System.out.println(String.format("part %-5d %-8s %s", part.n, outcome, part.file));
-                if (!"OK".equals(outcome)) {
-                    failures++;
-                    if (stopOnError) {
-                        break;
-                    }
-                }
-            }
+        System.out.println((rollback ? "Rolling back" : "Committing") + " every test statement (smoke.rollback=" + rollback + ")");
+        int failures;
+        if (useSqlcmd) {
+            System.out.println("Connecting via sqlcmd to " + cfg.get("db.server")
+                    + (cfg.get("db.name").isEmpty() ? "" : " / " + cfg.get("db.name")));
+            System.out.println();
+            failures = runSqlcmd(cfg, index, parts, rollback, stopOnError);
+        } else {
+            ConnectionFactory factory = new ConnectionFactory(cfg);
+            System.out.println("Connecting to " + factory.describeUrl());
+            System.out.println();
+            failures = runJdbc(factory, index, parts, rollback, stopOnError);
         }
 
         System.out.println();
@@ -81,7 +84,28 @@ public final class SmokeCommand implements Callable<Integer> {
         return 1;
     }
 
-    private String testPart(Connection conn, Index index, PartEntry part, boolean rollback) {
+    // -- JDBC path -----------------------------------------------------------
+
+    private int runJdbc(ConnectionFactory factory, Index index, List<PartEntry> parts, boolean rollback,
+                         boolean stopOnError) throws Exception {
+        int failures = 0;
+        try (Connection conn = factory.connect()) {
+            conn.setAutoCommit(false);
+            for (PartEntry part : parts) {
+                String outcome = testPartJdbc(conn, index, part, rollback);
+                System.out.println(String.format("part %-5d %-8s %s", part.n, outcome, part.file));
+                if (!"OK".equals(outcome)) {
+                    failures++;
+                    if (stopOnError) {
+                        break;
+                    }
+                }
+            }
+        }
+        return failures;
+    }
+
+    private String testPartJdbc(Connection conn, Index index, PartEntry part, boolean rollback) {
         File partFile = index.partPath(part);
         String charset = index.data.output.encoding;
         try {
@@ -114,13 +138,67 @@ public final class SmokeCommand implements Callable<Integer> {
         }
     }
 
-    private static boolean sameStatement(StatementRef a, StatementRef b) {
-        return a != null && b != null && a.offset == b.offset;
-    }
-
     private static void execute(Connection conn, String sql) throws SQLException {
         try (Statement stmt = conn.createStatement()) {
             stmt.execute(sql);
         }
+    }
+
+    // -- sqlcmd path -----------------------------------------------------------
+
+    private int runSqlcmd(AppConfig cfg, Index index, List<PartEntry> parts, boolean rollback, boolean stopOnError)
+            throws Exception {
+        int failures = 0;
+        List<String> baseArgs = SqlcmdSupport.baseArgs(cfg);
+        for (PartEntry part : parts) {
+            String outcome = testPartSqlcmd(baseArgs, index, part, rollback);
+            System.out.println(String.format("part %-5d %-8s %s", part.n, outcome, part.file));
+            if (!"OK".equals(outcome)) {
+                failures++;
+                if (stopOnError) {
+                    break;
+                }
+            }
+        }
+        return failures;
+    }
+
+    private String testPartSqlcmd(List<String> baseArgs, Index index, PartEntry part, boolean rollback) throws Exception {
+        File partFile = index.partPath(part);
+        String charset = index.data.output.encoding;
+        File script = File.createTempFile("nanosplit-smoke-part" + part.n + "-", ".sql");
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append("SET NOCOUNT ON;\r\n");
+            for (String statement : part.context) {
+                sb.append(statement).append("\r\nGO\r\n");
+            }
+            sb.append("BEGIN TRANSACTION;\r\n");
+            if (part.firstStatement != null) {
+                sb.append(PartAccess.readStatement(partFile, part.firstStatement, charset)).append("\r\n");
+            }
+            if (part.lastStatement != null && !sameStatement(part.firstStatement, part.lastStatement)) {
+                sb.append(PartAccess.readStatement(partFile, part.lastStatement, charset)).append("\r\n");
+            }
+            sb.append(rollback ? "ROLLBACK TRANSACTION;\r\n" : "COMMIT TRANSACTION;\r\n");
+            sb.append("GO\r\n");
+            for (String statement : part.closers) {
+                sb.append(statement).append("\r\nGO\r\n");
+            }
+            Files.write(script.toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
+
+            SqlcmdSupport.ProcessResult result = SqlcmdSupport.runScript(baseArgs, script, 60);
+            if (result.exitCode == 0) {
+                return "OK";
+            }
+            String tail = result.output.trim().replace("\r\n", " | ").replace("\n", " | ");
+            return "FAIL: " + (tail.isEmpty() ? "sqlcmd exited " + result.exitCode : tail);
+        } finally {
+            script.delete();
+        }
+    }
+
+    private static boolean sameStatement(StatementRef a, StatementRef b) {
+        return a != null && b != null && a.offset == b.offset;
     }
 }

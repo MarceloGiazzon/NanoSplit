@@ -19,7 +19,14 @@ logs/
 
 # Local test/sample data - never meant to be committed (can be multi-GB)
 /Sample/
+/import-test/
 *.zip
+
+# Ad-hoc local scratch (e.g. one-off test scripts/logs) - not part of the product
+/tools/
+
+# Harness/tooling local state
+.claude/
 
 # IDE
 .idea/
