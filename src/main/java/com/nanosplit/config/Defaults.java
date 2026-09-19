@@ -71,6 +71,12 @@ public final class Defaults {
         // is no server-side setting that redirects it).
         d.put("split.renameFrom", "");
         d.put("split.renameTo", "");
+        // Wrap CREATE DATABASE/TABLE/INDEX in an existence check so re-running a
+        // part against a target that already has some of that schema - e.g. a
+        // previous run got partway through part 1 before failing - skips what's
+        // already there instead of erroring "already exists". This is what makes
+        // resuming into an already-partially-created database actually work.
+        d.put("split.idempotentDdl", "true");
 
         // --- Execution -----------------------------------------------------
         d.put("run.stopOnError", "true");

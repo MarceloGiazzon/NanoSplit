@@ -17,6 +17,7 @@ import com.nanosplit.index.PartEntry;
 import com.nanosplit.index.StatementRef;
 import com.nanosplit.sql.ContextTracker;
 import com.nanosplit.sql.Encodings;
+import com.nanosplit.sql.IdempotentDdl;
 import com.nanosplit.sql.SqlScanner;
 import com.nanosplit.sql.SqlSources;
 import com.nanosplit.sql.SqlUnit;
@@ -65,6 +66,7 @@ public final class Splitter {
     private final long sourceSize;
     private final String renameFrom;
     private final String renameTo;
+    private final boolean idempotentDdl;
 
     public Splitter(AppConfig cfg) throws ConfigException, IOException {
         this.cfg = cfg;
@@ -96,6 +98,7 @@ public final class Splitter {
             throw new ConfigException("split.renameFrom is set but split.renameTo is empty - "
                     + "say what to rename it to");
         }
+        this.idempotentDdl = cfg.bool("split.idempotentDdl");
     }
 
     /**
@@ -200,6 +203,9 @@ public final class Splitter {
                 }
 
                 String rawText = applyRename(unit.text);
+                if (idempotentDdl && !unit.splittable) {
+                    rawText = IdempotentDdl.wrap(rawText);
+                }
                 String text = normaliseEol(rawText);
                 PartWriter.StatementPosition position = state.writer.writeStatement(text);
 
