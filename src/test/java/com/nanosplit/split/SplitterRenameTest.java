@@ -70,6 +70,40 @@ public class SplitterRenameTest {
     }
 
     @Test
+    public void skipPatternCommentsOutMatchingStatements() throws Exception {
+        String sql = "USE [master]\r\n"
+                + "GO\r\n"
+                // SSMS glues an object comment onto the front of CREATE USER -
+                // the pattern (anchored at the start) must see past it.
+                + "/****** Objeto:  User [DOMAIN\\SomeGroup] ******/\r\n"
+                + "CREATE USER [DOMAIN\\SomeGroup]\r\n"
+                + "GO\r\n"
+                + "ALTER ROLE [db_owner] ADD MEMBER [DOMAIN\\SomeGroup]\r\n"
+                + "GO\r\n"
+                + "INSERT [dbo].[Foo] ([Id]) VALUES (1)\r\n"
+                + "GO\r\n";
+        File input = tmp.newFile("script2.sql");
+        Files.write(input.toPath(), sql.getBytes(StandardCharsets.UTF_8));
+        File outDir = tmp.newFolder("out2");
+
+        AppConfig cfg = AppConfig.load(null, Arrays.asList(
+                "input.file=" + input.getPath(),
+                "output.dir=" + outDir.getPath(),
+                "split.skipPattern=^(CREATE USER|ALTER ROLE\\s.*ADD MEMBER)\\b.*\\\\"
+        ));
+        Splitter splitter = new Splitter(cfg);
+        Index index = splitter.run(null);
+
+        String content = new String(
+                Files.readAllBytes(index.partPath(index.parts().get(0)).toPath()), StandardCharsets.UTF_8);
+        assertFalse("the real CREATE USER must not run", content.contains("\nCREATE USER [DOMAIN\\SomeGroup]"));
+        assertTrue("the skipped statement stays visible as a comment",
+                content.contains("-- [NanoSplit] skipped") && content.contains("CREATE USER [DOMAIN\\SomeGroup]"));
+        assertTrue(content.contains("ADD MEMBER [DOMAIN\\SomeGroup]"));
+        assertTrue("unrelated statements are untouched", content.contains("INSERT [dbo].[Foo] ([Id]) VALUES (1)"));
+    }
+
+    @Test
     public void blankRenameFromLeavesTextUntouched() throws Exception {
         File input = tmp.newFile("script.sql");
         Files.write(input.toPath(), "USE [SomeDb]\r\nGO\r\n".getBytes(StandardCharsets.UTF_8));

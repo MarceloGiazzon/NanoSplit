@@ -67,6 +67,7 @@ public final class Splitter {
     private final String renameFrom;
     private final String renameTo;
     private final boolean idempotentDdl;
+    private final Pattern skipPattern;
 
     public Splitter(AppConfig cfg) throws ConfigException, IOException {
         this.cfg = cfg;
@@ -99,6 +100,29 @@ public final class Splitter {
                     + "say what to rename it to");
         }
         this.idempotentDdl = cfg.bool("split.idempotentDdl");
+        this.skipPattern = cfg.regex("split.skipPattern");
+    }
+
+    /**
+     * Comments out a statement matching {@code split.skipPattern} instead of
+     * writing it as executable SQL - the original text is kept, just
+     * neutralised, so it stays visible/auditable in the part file. A common
+     * use: {@code CREATE USER}/{@code ALTER ROLE ... ADD MEMBER} for a Windows
+     * domain group that only exists on the machine the script was generated
+     * on, which otherwise fails "not found" on any other machine.
+     */
+    private String applySkip(String text) {
+        if (skipPattern == null) {
+            return text;
+        }
+        // Skip past any leading "/****** Objeto: ... ******/" comment SSMS
+        // glues onto the front of statements like CREATE USER - without this,
+        // the pattern (anchored at the start) would never match those.
+        int i = IdempotentDdl.skipWhitespaceAndComments(text);
+        if (!skipPattern.matcher(text.substring(i)).find()) {
+            return text;
+        }
+        return "-- [NanoSplit] skipped (matches split.skipPattern): " + text.replaceAll("\\r?\\n", " ");
     }
 
     /**
@@ -203,8 +227,14 @@ public final class Splitter {
                 }
 
                 String rawText = applyRename(unit.text);
-                if (idempotentDdl && !unit.splittable) {
-                    rawText = IdempotentDdl.wrap(rawText);
+                boolean skipped = false;
+                if (!unit.splittable) {
+                    String beforeSkip = rawText;
+                    rawText = applySkip(rawText);
+                    skipped = rawText != beforeSkip;
+                    if (!skipped && idempotentDdl) {
+                        rawText = IdempotentDdl.wrap(rawText);
+                    }
                 }
                 String text = normaliseEol(rawText);
                 PartWriter.StatementPosition position = state.writer.writeStatement(text);

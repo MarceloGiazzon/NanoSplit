@@ -74,7 +74,7 @@ public final class IdempotentDdl {
      * block comment on its own line) - i.e. the offset the actual keyword
      * ({@code CREATE}, ...) starts at.
      */
-    private static int skipWhitespaceAndComments(String text) {
+    public static int skipWhitespaceAndComments(String text) {
         int i = 0;
         int n = text.length();
         while (i < n) {

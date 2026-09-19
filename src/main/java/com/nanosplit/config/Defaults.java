@@ -77,6 +77,15 @@ public final class Defaults {
         // already there instead of erroring "already exists". This is what makes
         // resuming into an already-partially-created database actually work.
         d.put("split.idempotentDdl", "true");
+        // Statements matching this regex are commented out instead of written
+        // as executable SQL. Defaults to CREATE USER/ADD MEMBER for a Windows
+        // domain group (a "DOMAIN\name" identifier) - a common
+        // GeneXus/SSMS-generated-script portability snag: the domain almost
+        // never exists on the machine you're restoring onto, and that one
+        // statement otherwise blocks the entire import. Does not touch SQL
+        // logins/roles (no backslash) or anything else. Set to blank to keep
+        // every statement exactly as the source script has it.
+        d.put("split.skipPattern", "^(CREATE USER|ALTER ROLE\\s.*ADD MEMBER)\\b.*\\\\");
 
         // --- Execution -----------------------------------------------------
         d.put("run.stopOnError", "true");
